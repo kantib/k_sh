@@ -1,3 +1,19 @@
+/*  -------------------------------------------------------------------*/
+/*                PROGRAM - UNIX SHELL AND HISTORY FEATURE  
+                  This program provides the user with a shell like interface.
+                  User is provided "k_sh" prompt to run basic Linux commands.
+                  Some other common features we see on the standard shells are
+                  supported by this program as well.
+                  1. history command - shows last 10 commands executed on the shell.
+                  2. & - support for running a process in the background.  
+                  3. !! - special command to run the last run command
+                  4. !<number> - special command to run a command from the history
+                  if it exists in the history.
+                  5. cd <absolute directory path> - change directory
+
+                  Version 1.1 - Author - Kanti Bhat(SJSUID - 011488386)  */
+/*  --------------------------------------------------------------------*/
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -9,8 +25,6 @@
 #define true 1
 #define false 0
 #define SIZE 100
-#define LIMIT 20
-
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -28,8 +42,7 @@ struct node{
 };
 
 
-
-/* Function to print the list*/
+/* Function to print the list */
 void print_list(struct node **root)
 {
     struct node *temp;
@@ -41,7 +54,7 @@ void print_list(struct node **root)
     }
 }
 
-/*Function to add a node at the end of the list*/
+/* Function to add a node at the end of the list */
 void add_node(struct node** root,int cmd_count, char f_pname[])
 {
     struct node *temp;
@@ -66,6 +79,7 @@ void add_node(struct node** root,int cmd_count, char f_pname[])
     }
 }
 
+/*  Function to count the NODES in the list  */
 int count_nodes(struct node **root)
 {
     int count =0;
@@ -81,13 +95,15 @@ int count_nodes(struct node **root)
 }
 
 
-/*Function to delete a node with pid = f_pid */
+/*  Function to delete a node in the beginning of the list.
+    oldest command entered is removed from the history list.  */
 int delete_node(struct node **root, int nodes)
 {
     struct node *temp;
     struct node *temp1;
     int flag = false;
-    for(int i = nodes; i>10;i--)
+    int i; 
+    for(i = nodes; i>10;i--)
     {
         temp = *root;
         *root = (*root)->next;
@@ -95,6 +111,9 @@ int delete_node(struct node **root, int nodes)
     }
 }
 
+/* Function to find a node from the list.
+   If command_count field matches with of any node, function
+   returns true. false otherwise.  */
 int find_node(struct node **root, int count, char *line)
 {
     int ret = false;
@@ -119,27 +138,8 @@ int find_node(struct node **root, int count, char *line)
     return ret;
 }
 
-
-/*void parse(char line[], int len, char **arr, int *cnt)
-  {	
-  int i=0;
-  int j=0;
-  char my_str[50][50];
-  for(int p=0;p<len+1;p++)
-  {  
-  if(line[p] == ' ' || line[p] == '\r' || line[p] == '\t' || line[p] == '\0' ){
-  my_str[i][j] = '\0';
-  arr[i] = my_str[i];
-  i++;j=0;
-  ++(*cnt);
-  continue;
-  }
-  my_str[i][j] = line[p];	
-  j++;
-  }
-  printf("\n");
-
-  }*/
+/* Function to parse the user input (command) and save them
+   into an array of strings.  */
 void parse(char line[], int len, char **arr, int *cnt)
 {
     char my_str[50][50];
@@ -169,12 +169,14 @@ void parse(char line[], int len, char **arr, int *cnt)
 }
 
 
-/*function returns true it there is any some
-  background job running.false otherwise.*/
+/* Function to check if any background process 
+   exists. function returns true it there is some
+   background job running.false otherwise.  */
 int check_bckgrnd_process(struct proc proc_arr[])
 {
     int ret_value = false;
-    for(int i=0;i<SIZE;i++){
+    int i; 
+    for(i=0;i<SIZE;i++){
         if(proc_arr[i].proc_id != 0){
             ret_value = true;
             break;
@@ -184,11 +186,13 @@ int check_bckgrnd_process(struct proc proc_arr[])
 }
 
 
+/* Function to show the status of processes running in the background.
+   Erase the array entry of processes that have completed. */
 void clear_bakgrnd_procs(struct proc cp_arr[])
 {
-    int ret;
+    int ret, k;
     int return_status;
-    for(int k=0;k<SIZE;k++)
+    for(k=0;k<SIZE;k++)
     {
         if(cp_arr[k].proc_id != 0)
         {
@@ -206,7 +210,8 @@ void clear_bakgrnd_procs(struct proc cp_arr[])
     }
 }
 
-
+/*  Function to strip leading/trailing and extra white spaces
+    in between the user command options.  */ 
 void strip_white_spaces(char a[])
 {
     char b[SIZE];
@@ -254,6 +259,13 @@ void strip_white_spaces(char a[])
     }
 }
 
+pid_t cur_process = 0;
+
+void signal_handler(int signal) {
+    if (cur_process != 0) {
+        kill(cur_process, signal);
+    }
+}
 
 void main()
 {
@@ -270,28 +282,35 @@ void main()
     char temp_arr[100];
     struct proc cp_arr[SIZE];
     struct node *root = NULL;
+    struct sigaction sa = {
+        .sa_handler = signal_handler
+    };
 
     char temp_line[20];
     int return_val,count1 = 0;
-
-    for (int j = 0;j < SIZE; j++){
+    int j;
+    for (j = 0;j < SIZE; j++){
         cp_arr[j].proc_id = 0;
         strcpy(cp_arr[j].proc_name,"");
     }
 
-    signal(SIGINT, SIG_IGN);
+    signal(SIGINT, signal_handler);
+    sigaction(SIGTSTP, &sa, NULL);
 
+    /* loop to execute user commands */
     while(true)
     {
         memset(line,'\0',SIZE);
+        cur_process = 0;
 
         len =0;
         back_flag = 0;
         words_count = 0;
-        for(int i=0;i<50;i++)
+        for(i=0;i<50;i++)
             cmd[i] = NULL;
         printf("%sk_sh >%s", KBLU, KNRM);
 
+        /* save user command in line variable and process */
         if(fgets(line,sizeof(line),stdin) != NULL)
         {
             if (line[0] == '\n')
@@ -302,6 +321,8 @@ void main()
             len = strlen(line);
             strip_white_spaces(line);
             len = strlen(line);
+
+            /* set flag is background service is requested */
             if(line[len-1] == '&')
             {
                 int i;
@@ -311,6 +332,7 @@ void main()
                 len = strlen(line);
             }
 
+            /* Handle Special commands !! and !<number> */
             if(line[0] == '!'){
                 char temp_line[SIZE];
                 int t;
@@ -342,21 +364,28 @@ void main()
                             printf("%s\n",line);
                         }				
                     }else {
-                        printf("atoi error\n");
+                        printf("Command not supported.\n");
                     }
                 }
 
             }
 
-            add_node(&root,++count,line);  //add command name to the list to maintain the history
+            //update history list.
+            add_node(&root,++count,line);  
             nodes = count_nodes(&root);
             if (nodes > 10) {
+
+                /* delete the oldest commands
+                   from the history list to maintain
+                   10 latest commands in the history.*/
                 delete_node(&root, nodes);
             } 
 
+            /* handle exit command */
             if(0 == strcmp(line,"exit")) 
                 exit(0);
 
+            /* handle history command */
             if(0 == strcmp(line, "history"))
             {
                 //display the list
@@ -367,17 +396,23 @@ void main()
             //parse user input and save them as tokens into cmd array
             parse(line,len,cmd,&words_count);
 
-	    if(0 == strcmp(cmd[0],"cd")) {
-		return_val = chdir(cmd[1]);
-		if (return_val != 0)
-			printf("%s\n", strerror(errno));
-		continue;
-	    }
+            /* handle cd command */
+            if(0 == strcmp(cmd[0],"cd")) {
+                return_val = chdir(cmd[1]);
+                if (return_val != 0)
+                    printf("%s\n", strerror(errno));
+                continue;
+            }
 
+            /* create a new child process
+               to handle user command execution.*/
+            cur_process = 0;
             cpid1 = fork();
             if(cpid1 < 0) {printf("ERROR in fork.\n");continue;}
             else if(cpid1 == 0)
             {
+                if (back_flag)
+                    unsetenv("TERM");
 
                 /*This is child process*/
                 if (0 > execvp(cmd[0], (char **)cmd))
@@ -388,13 +423,17 @@ void main()
             }
             else if(cpid1 > 0)
             {
+                cur_process = cpid1;
+                /* Parent process. */
+                /* wait untill child process execution
+                   is complete. */
                 if(back_flag != 1)
                 {
-                    waitpid(cpid1,&return_status,0);
-                    //if (WIFEXITED(return_status) || WIFSIGNALED(return_status)) 
-                    //{
-                    //    printf("\nchild process %d[%s]   Done.   \n",cpid1, name);
-                    //}
+                    do {
+                        waitpid(cpid1,&return_status,0);
+                    } while(errno == EINTR);
+
+                    cur_process = 0;
 
                     /*check if any pending background processes exist*/
                     status = check_bckgrnd_process(cp_arr);
@@ -404,18 +443,24 @@ void main()
 
                 } else if(back_flag == 1)
                 {
+                    /* If back ground process is requested, save child pid 
+                       and loop back to the beginning. */
 
+                    /* loop background process array 
+                       to find the empty entry in the array. */
                     for( s=0;s <SIZE;s++)
                     {
                         if(cp_arr[s].proc_id == 0){
                             break;}
                     }
+                    /* case for maximum background processes running already. */
                     if (s == SIZE)
                     {
                         printf("Maximum limit of background processes running already..\n");
                         printf("Try again after some time..\n");
                         continue;
                     }
+                    /* save child pid in the background process array. */
                     cp_arr[s].proc_id = cpid1;
                     strcpy(cp_arr[s].proc_name,cmd[0]);
                     printf("[%d][%s] child created\n",cpid1, cmd[0]);
@@ -428,4 +473,3 @@ void main()
         }
     }	
 }
-
