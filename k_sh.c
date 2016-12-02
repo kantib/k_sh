@@ -260,10 +260,27 @@ void strip_white_spaces(char a[])
 }
 
 pid_t cur_process = 0;
+int stopped = 0;
 
-void signal_handler(int signal) {
+void* background_handler(void *arg) {
+    pid_t *pid = (pid_t*)arg;
+    int ret_status;
+    waitpid(*pid, &ret_status, 0);
+}
+
+void signal_handler(int sig) {
+    if (sig == SIGTSTP)
+    {
+        stopped=1;
+        pthread_t tid;
+        pid_t *pid = malloc(sizeof(pid_t));
+        *pid = cur_process;
+        //Start a thread to wait for this pid
+        pthread_create(&tid, NULL, background_handler, (void*)pid);
+    }
+
     if (cur_process != 0) {
-        kill(cur_process, signal);
+        kill(cur_process, sig);
     }
 }
 
@@ -295,6 +312,7 @@ void main()
     }
 
     signal(SIGINT, signal_handler);
+    //signal(SIGTSTP, SIG_IGN);
     sigaction(SIGTSTP, &sa, NULL);
 
     /* loop to execute user commands */
@@ -302,6 +320,7 @@ void main()
     {
         memset(line,'\0',SIZE);
         cur_process = 0;
+        stopped = 0;
 
         len =0;
         back_flag = 0;
@@ -407,6 +426,7 @@ void main()
             /* create a new child process
                to handle user command execution.*/
             cur_process = 0;
+            stopped = 0;
             cpid1 = fork();
             if(cpid1 < 0) {printf("ERROR in fork.\n");continue;}
             else if(cpid1 == 0)
@@ -431,9 +451,14 @@ void main()
                 {
                     do {
                         waitpid(cpid1,&return_status,0);
-                    } while(errno == EINTR);
+                        usleep(10);
+                        if (stopped)
+                            break;
+
+                    }while(errno == EINTR);
 
                     cur_process = 0;
+                    stopped = 0;
 
                     /*check if any pending background processes exist*/
                     status = check_bckgrnd_process(cp_arr);
